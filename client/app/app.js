@@ -6,6 +6,7 @@ import LeftSideBar from './components/leftsidebar';
 import RightSideBar from './components/rightsidebar';
 import ChatPopup from './components/chatpopup';
 import FeedItem from './components/feeditem';
+import ErrorBanner from './components/errorbanner';
 import {hideElement} from './util';
 import {searchForFeedItems, deleteFeedItem} from './server';
 import { IndexRoute, Router, Route, hashHistory } from 'react-router'
@@ -138,6 +139,11 @@ class App extends React.Component {
         <NavBar searchTerm={searchTerm} />
         <div className="container">
           <div className="row">
+            <div className='col-md-12'>
+              <ErrorBanner/>
+            </div>
+          </div>
+          <div className='row'>
             <div className="col-md-2 fb-left-sidebar">
               <LeftSideBar />
             </div>
