@@ -45,6 +45,141 @@ app.post('/feeditem', validate({body: StatusUpdateSchema}), function(req, res) {
 	}
 });
 
+app.post('/resetdb', function(req, res) {
+	console.log('Resetting database...');
+	database.resetDatabase();
+	// Send back an empty response with status code 200.
+	res.send();
+})
+
+app.put('/feeditem/:feeditemid/content', function(req, res) {
+	var fromUser = getUserIdFromToken(req.get('Authorization'));
+	var feedItemId = req.params.feeditemid;
+	var feedItem = readDocument('feedItems', feedItemId);
+	if (fromUser === feedItem.contents.author) {
+		if (typeof(req.body) !== 'string') {
+			res.status(400).end();
+			return;
+		}
+		feedItem.contents.contents = req.body;
+		writeDocument('feedItems', feedItem);
+		res.send(getFeedItemSync(feedItemId));
+	} else {
+		res.status(401).end();
+	}
+})
+
+app.delete('/feeditem/:feeditemid', function(req, res) {
+	var fromUser = getUserIdFromToken(req.get('Authorization'));
+	// Convert the parameter in the request string into integer.
+	var feedItemId = parseInt(req.params.feeditemid, 10);
+	// Read the feed item with that id.
+	var feedItem = readDocument('feedItems', feedItemId);
+	// Check if the author of this feed item is the one that currently is making the request.
+	if (feedItem.contents.author === fromUser) {
+		database.deleteDocument('feedItems', feedItemId);
+		// Remove references to this feed item from all other feeds.
+		var feeds = database.getCollection('feeds');
+		var feedIds = Object.keys(feeds);
+		feedIds.forEach((feedId) => {
+			var feed = feeds[feedId];
+			var itemIdx = feed.contents.indexOf(feedItemId);
+			// If the content contains the removed feed.
+			if (itemIdx !== -1) {
+				// Remove it.
+				feed.contents.splice(itemIdx, 1);
+				// Update the feed in the database.
+				database.writeDocument('feeds', feed);
+			}
+		});
+		res.send();
+	} else {
+		res.status(401).end();
+	}
+});
+
+app.put('/feeditem/:feeditemid/likelist/:userid', function(req, res) {
+	// Parse the token for the user id that is making request.
+	var fromUser = getUserIdFromToken(req.get('Authorization'));
+	// Convert feed item id from string to integer.
+	var feedItemId = parseInt(req.params.feeditemid, 10);
+	// Convert user id from string to integer.
+	var userId = parseInt(req.params.userid, 10);
+	// Check if the user making PUT request is the one who is in the like list.
+	// This condition does not call anything in the database.
+	if (fromUser === userId) {
+		// Read the feed item using the id.
+		var feedItem = readDocument('feedItems', feedItemId);
+		// Find the user id in the like list.
+		if (feedItem.likeCounter.indexOf(userId) === -1) {
+			// If not found, add it.
+			feedItem.likeCounter.push(userId);
+			// Update the feed item in the database.
+			writeDocument('feedItems', feedItem);
+		}
+		//
+		res.send(feedItem.likeCounter.map((userId) =>
+			readDocument('users', userId)));
+	}
+	// The user making this request is not the one in the request url.
+	else {
+		// Response the status code of Unauthorized.
+		res.status(401).end();
+	}
+});
+
+app.delete('/feeditem/:feeditemid/likelist/:userid', function(req, res) {
+	// Parse the token for the user id that is making request.
+	var fromUser = getUserIdFromToken(req.get('Authorization'));
+	// Convert feed item id from string to integer.
+	var feedItemId = parseInt(req.params.feeditemid, 10);
+	// Convert user id from string to integer.
+	var userId = parseInt(req.params.userid, 10);
+	// Check if the user making PUT request is the one who is in the like list.
+	// This condition does not call anything in the database.
+	if (fromUser === userId) {
+		// Read the feed item using the id.
+		var feedItem = readDocument('feedItems', feedItemId);
+		// Find the user id in the like list.
+		var likeIndex = feedItem.likeCounter.indexOf(userId);
+		if (likeIndex !== -1) {
+			// If found, remove it.
+			feedItem.likeCounter.splice(likeIndex, 1);
+			// Update the feed item in the database.
+			writeDocument('feedItems', feedItem);
+		}
+		// Return a list of users that liked the feed item.
+		res.send(feedItem.likeCounter.map((userId) =>
+			readDocument('users', userId)));
+	}
+	// The user making this request is not the one in the request url.
+	else {
+		// Response the status code of Unauthorized.
+		res.status(401).end();
+	}
+});
+
+app.post('/search', function(req, res) {
+	var fromUser = getUserIdFromToken(req.get('Authorization'));
+	// Retrieve data about user that makes request.
+	var user = readDocument('users', fromUser);
+	if (typeof(req.body) === 'string') {
+		var queryText = req.body.trim().toLowerCase();
+		// Retrieve feed that belongs to the user, and read its content,
+		// which is a list of feed item ids.
+		var feedItemIDs = readDocument('feeds', user.feed).contents;
+		res.send(
+			// Filter feed item ids that its feed item's status text contains the query text.
+			feedItemIDs.filter((feedItemID) => {
+			var feedItem = readDocument('feedItems', feedItemID);
+			return feedItem.contents.contents.toLowerCase().indexOf(queryText) !== -1;
+		}).
+		// For those qualifying feed item ids, return those feed items.
+		map(getFeedItemSync));
+	} else {
+		res.status(400).end();
+	}
+})
 
 // Post FeedItem.
 function postStatusUpdate(user, location, contents) {
