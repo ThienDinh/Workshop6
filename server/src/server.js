@@ -4,6 +4,7 @@ var bodyParser = require('body-parser');
 var database = require('./database');
 var readDocument = database.readDocument;
 var StatusUpdateSchema = require('./schemas/statusupdate.json');
+var CommentPostSchema = require('./schemas/comment.json');
 var validate = require('express-jsonschema').validate;
 var writeDocument = database.writeDocument;
 var addDocument = database.addDocument;
@@ -179,7 +180,84 @@ app.post('/search', function(req, res) {
 	} else {
 		res.status(400).end();
 	}
-})
+});
+
+app.put('/feeditem/:feeditemid/commentthread/:commentindex/likelist/:userid', function(req, res) {
+	// Parse the token for the user id that is making request.
+	var fromUser = getUserIdFromToken(req.get('Authorization'));
+	// Convert feed item id from string to integer.
+	var feedItemId = parseInt(req.params.feeditemid, 10);
+	// Convert user id from string to integer.
+	var userId = parseInt(req.params.userid, 10);
+	var commentIdx = parseInt(req.params.commentindex, 10);
+	// Check if the user making PUT request is the one who is in the like list.
+	// This condition does not call anything in the database.
+	if (fromUser === userId) {		
+		var feedItem = readDocument('feedItems', feedItemId);
+		var comment = feedItem.comments[commentIdx];
+		comment.likeCounter.push(userId);
+		writeDocument('feedItems', feedItem);
+		comment.author = readDocument('users', comment.author);
+		//
+		res.send(comment);
+	}
+	// The user making this request is not the one in the request url.
+	else {
+		// Response the status code of Unauthorized.
+		res.status(401).end();
+	}
+});
+
+app.delete('/feeditem/:feeditemid/commentthread/:commentindex/likelist/:userid', function(req, res) {
+
+	// Parse the token for the user id that is making request.
+	var fromUser = getUserIdFromToken(req.get('Authorization'));
+	// Convert feed item id from string to integer.
+	var feedItemId = parseInt(req.params.feeditemid, 10);
+	// Convert user id from string to integer.
+	var userId = parseInt(req.params.userid, 10);
+	var commentIdx = parseInt(req.params.commentindex, 10);
+	// Check if the user making PUT request is the one who is in the like list.
+	// This condition does not call anything in the database.
+	if (fromUser === userId) {
+		var feedItem = readDocument('feedItems', feedItemId);
+		var comment = feedItem.comments[commentIdx];
+		var userIndex = comment.likeCounter.indexOf(userId);
+		if (userIndex !== -1) {
+			comment.likeCounter.splice(userIndex, 1);
+			writeDocument('feedItems', feedItem);
+		}
+		comment.author = readDocument('users', comment.author);
+		// Return a list of users that liked the feed item.
+		res.send(comment);
+	}
+	// The user making this request is not the one in the request url.
+	else {
+		// Response the status code of Unauthorized.
+		res.status(401).end();
+	}
+});
+
+app.post('/feeditem/:feeditemid/commentthread', validate({body: CommentPostSchema}), function(req, res) {	
+	var feedItemId = parseInt(req.params.feeditemid, 10);
+	var feedItem = readDocument('feedItems', feedItemId);
+	var fromUser = getUserIdFromToken(req.get('Authorization'));
+	var contents = req.body.contents;
+	var userId = req.body.userId;
+	if (fromUser === userId) {	
+		feedItem.comments.push({
+			"author": userId,
+			"contents": contents,
+			"postDate": new Date().getTime(),
+			"likeCounter": []
+		});
+		writeDocument('feedItems', feedItem);
+		// Return a resolved version of the feed item.
+		res.send(getFeedItemSync(feedItemId));		
+	} else {
+		res.status(401).end();
+	}
+});
 
 // Post FeedItem.
 function postStatusUpdate(user, location, contents) {
